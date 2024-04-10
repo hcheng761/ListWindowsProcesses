@@ -13,7 +13,7 @@
 
 
 static int numProcessors;
-static std::map<std::wstring, std::vector<DWORD>>processMap; //executable and # of subprocesses
+static std::map<std::wstring, std::unordered_set<DWORD>>processMap; //executable and # of subprocesses
 static std::map<std::wstring, DWORD>parentMap;
 static HANDLE GlobalHSnap;
 
@@ -31,46 +31,19 @@ static HANDLE GlobalHSnap;
         std::wcout << dir.substr(i, dir.length() - i) << std::endl;
     }
 
-    bool CheckForParent(DWORD d, HANDLE hSnapCopy)
+    bool CheckPID(DWORD d, HANDLE hSnapCopy)
     {
         PROCESSENTRY32 pr32;
         pr32.dwSize = sizeof(PROCESSENTRY32);
-        HANDLE handle;
         DWORD pid = d;
         BOOL found = false;
 
         if (!Process32First(hSnapCopy, &pr32))
         {
-            return true;
+            return false;
         }
 
-        while (Process32Next(hSnapCopy, &pr32))
-        {
-            if (pr32.th32ProcessID == pid)
-            {
-                found = true;
-                handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-                if (handle != NULL)
-                {
-                    wchar_t* path = new wchar_t[MAX_PATH];
-                    DWORD size = MAX_PATH;
-                    BOOL criticalHit;
-                    if (QueryFullProcessImageNameW(handle, 0, path, &size) && IsProcessCritical(handle, &criticalHit))
-                    {
-                        std::wstring ws = path;
-                        //std::wcout << ws << ": " << pid << '\n';
-                        //splitDirectory(ws);
-                    }
-                    CloseHandle(handle);
-                    if (CheckForParent(pr32.th32ParentProcessID, hSnapCopy))
-                    {
-                        parentMap[path] = pr32.th32ProcessID;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return true;
     }
 
     void WalkVS(DWORD d, HANDLE hSnapCopy)
@@ -79,7 +52,6 @@ static HANDLE GlobalHSnap;
         pr32.dwSize = sizeof(PROCESSENTRY32);
         HANDLE handle;
         DWORD pid = d;
-        BOOL found = false;
 
         if (!Process32First(hSnapCopy, &pr32))
         {
@@ -91,7 +63,7 @@ static HANDLE GlobalHSnap;
         {
             if (pr32.th32ProcessID == pid)
             {
-                found = true;
+                std::wstring ws;
                 handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
                 if (handle != NULL)
                 {
@@ -101,11 +73,15 @@ static HANDLE GlobalHSnap;
                     if (QueryFullProcessImageNameW(handle, 0, path, &size) && IsProcessCritical(handle, &criticalHit))
                     {
                         std::wstring ws = path;
-                        //std::wcout << ws << ": " << pid << '\n';
+                        processMap[ws].insert(pid);
                         //splitDirectory(ws);
                     }
                     CloseHandle(handle);
                     WalkVS(pr32.th32ParentProcessID, hSnapCopy);
+                }
+                else
+                {
+                    parentMap[ws] = pid;
                 }
             }
         }
@@ -121,8 +97,8 @@ static HANDLE GlobalHSnap;
         if (QueryFullProcessImageNameW(handle, 0, path, &buffSize))
         {
             name = path;
-            if (processMap.find(name) != processMap.end())
-                processMap[name].push_back(pid);
+            //if (processMap.find(name) != processMap.end())
+                //processMap[name].push_back(pid);
             //std::wcout << name << ": " << pid << '\n';
         }
 
@@ -147,7 +123,8 @@ static HANDLE GlobalHSnap;
         {
             std::wstring ws = path;
             if (processMap.find(ws) == processMap.end())
-                processMap[ws] = std::vector<DWORD>();
+                processMap[ws] = std::unordered_set<DWORD>();
+
         }
 
         //std::unordered_set <std::string>& windows = *reinterpret_cast<std::unordered_set<std::string>*>(lParam);
@@ -236,18 +213,21 @@ static HANDLE GlobalHSnap;
                 }
             }
 
-            if (Process32First(hProcsSnap, &prEntry))
-            {
-                critProcNum++;
-            }
 
             CloseHandle(hProcsSnap);
-
-            std::cout << processMap.size() << '\n';
-
+            //std::cout << processMap.size() << " " << parentMap.size() << '\n';
+            int d = processMap.size();
             for (auto& [i, j] : processMap)
+            {
+                std::wcout << i << " | ";
                 for (auto& k : j)
-                    std::wcout << i << " | " << k << '\n';
+                {
+                    std::wcout << k << " ";
+                    d++;
+                }
+                std::cout << std::endl;
+            }
+            std::cout << d;
             return 0;
         }
     }
